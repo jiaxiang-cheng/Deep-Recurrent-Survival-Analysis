@@ -102,7 +102,7 @@ class SparseData:
         return np.array(batch_data), np.array(batch_labels), np.array(batch_seqlen), np.array(batch_market_price)
 
 
-class biSparseData():
+class biSparseData:
     def __init__(self, INPUT_FILE, discount):
         random.seed(time.time())
         self.winData = SparseData(INPUT_FILE, True, False, discount)
@@ -110,7 +110,7 @@ class biSparseData():
         self.size = self.winData.size + self.loseData.size
 
     def next(self, batch):
-        # win = int(random.random() * 100) % 11 == 1# todoe 1/10 get windata
+        # win = int(random.random() * 100) % 11 == 1  # todo 1/10 get win data
         # win = int(random.random() * 100) % 11 <= 5
         if int(random.random() * 100) % 11 <= 5:
             a, b, c, d = self.winData.next(batch)
@@ -120,11 +120,12 @@ class biSparseData():
             return a, b, c, d, False
 
 
+def init_matrix(shape):
+    return tf.random_normal(shape, stddev=0.1)
+
+
 class BASE_RNN():
     train_data = None
-
-    def init_matrix(self, shape):
-        return tf.random_normal(shape, stddev=0.1)
 
     def __init__(self, EMB_DIM=32,
                  FEATURE_SIZE=13,
@@ -189,22 +190,30 @@ class BASE_RNN():
         self.OPEN_TEST = OPEN_TEST
         self.COV_SIZE = COV_SIZE
 
-        para = None
-        if LOG_FILE_NAME != None:
+        # para = None
+        if LOG_FILE_NAME is not None:
             para = LOG_FILE_NAME
         else:
-            para = LOG_PREFIX + str(self.EMB_DIM) + "_" + \
-                   str(BATCH_SIZE) + "_" + \
-                   str(self.STATE_SIZE) + "_" + \
-                   "{:.6f}".format(self.LR) + "_" + "{:.6f}".format(self.ANLP_LR) + "_" + \
-                   "{:.6f}".format(self.L2_NORM) + "_" + \
-                   INPUT_FILE + "_" + \
-                   "{:.2f}".format(self.ALPHA) + "_" \
-                                                 "{:.2f}".format(self.BETA) + "_" + str(ADD_TIME_FEATURE) + \
-                   "_" + str(self.QRNN_MODEL) + "_" + str(self.COV_SIZE) + "_" + str(DISCOUNT)
+            para = LOG_PREFIX + \
+                   str(self.EMB_DIM) + \
+                   "_" + str(BATCH_SIZE) + \
+                   "_" + str(self.STATE_SIZE) + \
+                   "_" + "{:.6f}".format(self.LR) + \
+                   "_" + "{:.6f}".format(self.ANLP_LR) + \
+                   "_" + "{:.6f}".format(self.L2_NORM) + \
+                   "_" + INPUT_FILE + \
+                   "_" + "{:.2f}".format(self.ALPHA) + \
+                   "_" + "{:.2f}".format(self.BETA) + \
+                   "_" + str(ADD_TIME_FEATURE) + \
+                   "_" + str(self.QRNN_MODEL) + \
+                   "_" + str(self.COV_SIZE) + \
+                   "_" + str(DISCOUNT)
+
         print(para, '\n')
+
         self.filename = para
         self.train_log_txt_filename = "./" + para + '.train.log.txt'
+
         if os.path.exists(self.train_log_txt_filename):
             self.exist = True
         else:
@@ -216,7 +225,7 @@ class BASE_RNN():
     def get_survival_data(self, model, sess):
         alltestdata = SparseData(self.TEST_FILE, True, True)
         ret = []
-        while alltestdata.finish_epoch == False:
+        while not alltestdata.finish_epoch:
             test_batch_x, test_batch_y, test_batch_len, test_batch_market_price = alltestdata.next(self.BATCH_SIZE)
             bid_loss, bid_test_prob, anlp, preds = sess.run(
                 [self.cost, self.predict, self.anlp_node, self.preds],
@@ -234,7 +243,7 @@ class BASE_RNN():
         self.test_data_lose = SparseData(self.TEST_FILE, False, False, self.DISCOUNT)
 
     def is_exist(self):
-        if self.SAVE_LOG == False:
+        if not self.SAVE_LOG:
             return False
         return self.exist
 
@@ -248,7 +257,7 @@ class BASE_RNN():
         alpha = self.tf_control_parameter[0]
         beta = self.tf_control_parameter[1]
         self.tf_rnn_len = tf.maximum(self.tf_bid_len, self.tf_market_price) + 2
-        embeddings = tf.Variable(self.init_matrix([self.MAX_DEN, self.EMB_DIM]))
+        embeddings = tf.Variable(init_matrix([self.MAX_DEN, self.EMB_DIM]))
         x_emds = tf.nn.embedding_lookup(embeddings, self.tf_x)
         input = tf.reshape(x_emds, [BATCH_SIZE, self.FEATURE_SIZE * self.EMB_DIM])
         input_x = None
@@ -256,14 +265,15 @@ class BASE_RNN():
             middle_layer = tf.layers.dense(input, self.MIDDLE_FEATURE_SIZE, tf.nn.relu)  # hidden layer
 
             def add_time(x):
-                y = tf.reshape(tf.tile(x, [int(self.MAX_SEQ_LEN)]), [int(self.MAX_SEQ_LEN), int(self.MIDDLE_FEATURE_SIZE)])
+                y = tf.reshape(tf.tile(x, [int(self.MAX_SEQ_LEN)]),
+                               [int(self.MAX_SEQ_LEN), int(self.MIDDLE_FEATURE_SIZE)])
                 t = tf.reshape(tf.range(int(self.MAX_SEQ_LEN)), [int(self.MAX_SEQ_LEN), 1])
                 z = tf.concat([y, tf.cast(t, dtype=tf.float32)], 1)
                 return z
 
             input_x = tf.map_fn(add_time, middle_layer)
 
-        preds = None
+        # preds = None
 
         if self.DNN_MODEL:
             outlist = []
@@ -361,25 +371,28 @@ class BASE_RNN():
 
     def train_test(self, sess):
         self.load_data()
-        init = tf.global_variables_initializer()
         self.sess = sess
+        init = tf.global_variables_initializer()
         sess.run(init)
-        saver = tf.train.Saver(max_to_keep=100)
-        self.saver = saver
-        TRAIN_LOG_STEP = int((self.train_data.size * 0.1) / self.BATCH_SIZE)
-        train_auc_arr = []
-        train_anlp_arr = []
-        train_loss_arr = []
-        train_auc_label = []
-        train_auc_prob = []
-        total_train_duration = 0
-        total_test_duration = 0
-        TEST_COUNT = 0
-        max_auc = -1
-        min_anlp = 200
-        enough_test = 0
-        last_loss = [9999.0, 9999.0]
-        start_time = time.time()
+
+        self.saver = tf.train.Saver(max_to_keep=100)
+        # saver = tf.train.Saver(max_to_keep=100)
+        # self.saver = saver
+
+        # TRAIN_LOG_STEP = int((self.train_data.size * 0.1) / self.BATCH_SIZE)
+        # train_auc_arr = []
+
+        train_anlp_arr, train_loss_arr, train_auc_label, train_auc_prob = [], [], [], []
+
+        # total_train_duration = 0
+        # total_test_duration = 0
+        # TEST_COUNT = 0
+        # max_auc = -1
+        # min_anlp = 200
+        # enough_test = 0
+        # last_loss = [9999.0, 9999.0]
+        # start_time = time.time()
+
         for step in range(1, self.TRAING_STEPS + 1):
             self.global_step = step
             batch_x, batch_y, batch_len, batch_market_price, win = self.train_data.next(self.BATCH_SIZE)
@@ -535,17 +548,13 @@ class BASE_RNN():
         # self.com_train_op = tf.get_collection("com_train_op")[0]
         # self.tf_control_parameter = graph.get_tensor_by_name("tf_control_parameter:0")
         # self.train_log_txt.write(statistics_log)
-
         return sess
 
     def run_test(self, sess):
-        auc_arr = []
-        loss_arr = []
-        anlp_arr = []
-        auc_prob = []
-        auc_label = []
+        auc_arr, loss_arr, anlp_arr, auc_prob, auc_label = [], [], [], [], []
         # print self.test_data_win.size + self.test_data_lose.size, "total size"
         total_time = 0
+
         for i in range(0, int(self.test_data_win.size / self.BATCH_SIZE)):
             test_batch_x, test_batch_y, test_batch_len, test_batch_market_price = self.test_data_win.next(
                 self.BATCH_SIZE)
@@ -562,10 +571,13 @@ class BASE_RNN():
             auc_label.append(test_batch_y.T[0])
             anlp_arr.append(anlp)
             loss_arr.append(bid_loss)
+
         mean_loss = np.array(loss_arr).mean()
         mean_anlp = np.array(anlp_arr).mean()
+
         log = self.getStatStr("TEST_WIN_DATA", self.global_step, 0.000001, mean_loss, mean_anlp)
         print(log)
+
         for i in range(0, int(self.test_data_lose.size / self.BATCH_SIZE)):
             test_batch_x, test_batch_y, test_batch_len, test_batch_market_price = self.test_data_lose.next(
                 self.BATCH_SIZE)
@@ -580,6 +592,7 @@ class BASE_RNN():
             auc_label.append(test_batch_y.T[0])
             anlp_arr.append(anlp)
             loss_arr.append(bid_loss)
+
         if len(auc_prob) > 0:
             try:
                 auc = roc_auc_score(np.reshape(np.array(auc_label), [1, -1])[0],
@@ -589,17 +602,22 @@ class BASE_RNN():
                 return
 
             auc_arr.append(auc)
+
         mean_loss = np.array(loss_arr).mean()
         mean_auc = np.array(auc_arr).mean()
         mean_anlp = np.array(anlp_arr).mean()
+
         log = self.getStatStr("TEST", self.global_step, mean_auc, mean_loss, mean_anlp)
         self.force_write(log)
         print(log)
+
         return mean_loss, mean_auc, mean_anlp
 
     def force_write(self, log):
+
         if not self.SAVE_LOG:
             return
+
         self.train_log_txt = open(self.train_log_txt_filename, 'a')
         self.train_log_txt.write(log)
         self.train_log_txt.close()
